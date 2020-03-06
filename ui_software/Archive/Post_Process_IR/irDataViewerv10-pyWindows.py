@@ -1,14 +1,15 @@
 import sys
-from PyQt4 import QtCore, QtGui, uic
-from PyQt4.QtCore import (QCoreApplication, QThread, QThreadPool, pyqtSignal, pyqtSlot, Qt, SIGNAL, QTimer, QDateTime)
-from PyQt4.QtGui import (QImage, QWidget, QApplication, QLabel, QPixmap, QPushButton, QVBoxLayout, QGridLayout, QSizePolicy, QMessageBox, QFileDialog, QSlider, QComboBox, QTextCursor)
+from PyQt5 import QtCore, QtGui, QtWidgets, uic
+from PyQt5.QtCore import (QCoreApplication, QThread, QThreadPool, pyqtSignal, pyqtSlot, Qt, QTimer, QDateTime)
+from PyQt5.QtWidgets import (QWidget, QApplication, QLabel, QPushButton, QVBoxLayout, QGridLayout, QSizePolicy, QMessageBox, QFileDialog, QSlider, QComboBox)
+from PyQt5.QtGui import (QImage, QPixmap, QTextCursor)
 import numpy as np
 import cv2
 import h5py
 from tifffile import imsave
 import time
 
-qtCreatorFile = "ir_post.ui"  # Enter file here.
+qtCreatorFile = "ui_software\Archive\Post_Process_IR\ir_post.ui"  # Enter file here.
 
 Ui_MainWindow, QtBaseClass = uic.loadUiType(qtCreatorFile)
 
@@ -153,9 +154,9 @@ framerate = 1 #(9 frames per second)
 timerHz = 111
 fileSelected = ""
 
-class Window(QtGui.QMainWindow, Ui_MainWindow):
+class Window(QtWidgets.QMainWindow, Ui_MainWindow):
 	def __init__(self):
-		QtGui.QMainWindow.__init__(self)
+		QtWidgets.QMainWindow.__init__(self)
 		Ui_MainWindow.__init__(self)
 		self.setupUi(self)
 		self.initUI()
@@ -609,7 +610,7 @@ class Window(QtGui.QMainWindow, Ui_MainWindow):
 			print('Incorrect File Type Selected. Please select .HDF5 File.')
 
 def main():
-    app = QtGui.QApplication(sys.argv)
+    app = QtWidgets.QApplication(sys.argv)
     main = Window()
     main.show()
     sys.exit(app.exec_())
