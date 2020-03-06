@@ -1,30 +1,34 @@
+import random
 import sys
-from PyQt5 import QtCore, QtGui, QtWidgets, uic
-from PyQt5.QtCore import (QCoreApplication, QThread, QThreadPool, pyqtSignal, pyqtSlot, Qt, QTimer, QDateTime)
-from PyQt5.QtWidgets import (QWidget, QApplication, QLabel, QPushButton, QVBoxLayout, QGridLayout, QSizePolicy, QMessageBox, QFileDialog, QSlider, QComboBox)
-from PyQt5.QtGui import (QImage, QPixmap, QTextCursor)
 import numpy as np
 import cv2
 import h5py
 from tifffile import imsave
 import time
 
-qtCreatorFile = "ui_software\Archive\Post_Process_IR\ir_post.ui"  # Enter file here.
+from matplotlib.contour import ContourSet
+import matplotlib as mpl
+from matplotlib import cm
+import matplotlib.animation as animation
+from matplotlib.animation import TimedAnimation
+from matplotlib.animation import FuncAnimation
+import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_qt4agg import NavigationToolbar2QT as NavigationToolbar
+from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
+
+from PyQt5 import QtCore, QtGui, QtWidgets, uic
+from PyQt5.QtCore import (QCoreApplication, QThread,
+                          QThreadPool, pyqtSignal, pyqtSlot, Qt, QTimer, QDateTime)
+from PyQt5.QtWidgets import (QWidget, QApplication, QLabel, QPushButton, QVBoxLayout,
+                             QGridLayout, QSizePolicy, QMessageBox, QFileDialog, QSlider, QComboBox)
+from PyQt5.QtGui import (QImage, QPixmap, QTextCursor)
+
+# Enter file here.
+qtCreatorFile = "ui_software\Archive\Post_Process_IR\ir_post.ui"
 
 Ui_MainWindow, QtBaseClass = uic.loadUiType(qtCreatorFile)
 
-from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qt4agg import NavigationToolbar2QT as NavigationToolbar
-from matplotlib.figure import Figure
-import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
-from matplotlib.animation import TimedAnimation
-import matplotlib.animation as animation
-from matplotlib import cm
-import matplotlib as mpl
-from matplotlib.contour import ContourSet
-
-import random
 
 def generate_colour_map():
     """
@@ -85,11 +89,11 @@ def generate_colour_map():
         255, 240, 137, 255, 242, 151, 255, 244, 165, 255, 246, 179, 255, 248,
         193, 255, 249, 207, 255, 251, 221, 255, 253, 235, 255, 255, 24]
 
-    def chunk(
-            ulist, step): return map(
-        lambda i: ulist[i: i + step],
-        xrange(0, len(ulist),
-               step))
+    def chunk(ulist, step):
+        return map(
+            lambda i: ulist[i: i + step],
+            range(0, len(ulist), step)
+        )
 
     chunks = chunk(colourmap_ironblack, 3)
 
@@ -110,13 +114,17 @@ def generate_colour_map():
 
     return lut
 
+
 toggleUnitState = 'F'
+
 
 def ktof(val):
     return (1.8 * ktoc(val) + 32.0)
 
+
 def ktoc(val):
     return (val - 27315) / 100.0
+
 
 def readTemp(unit, state):
     if state == 'max':
@@ -143,477 +151,500 @@ def readTemp(unit, state):
     else:
         display('What are you asking for?')
 
+
 def raw_to_8bit(data):
     cv2.normalize(data, data, 0, 65535, cv2.NORM_MINMAX)
     np.right_shift(data, 8, data)
     return cv2.cvtColor(np.uint8(data), cv2.COLOR_GRAY2RGB)
 
+
 frame = 1
 videoState = 'notPlay'
-framerate = 1 #(9 frames per second)
+framerate = 1  # (9 frames per second)
 timerHz = 111
 fileSelected = ""
 
+
 class Window(QtWidgets.QMainWindow, Ui_MainWindow):
-	def __init__(self):
-		QtWidgets.QMainWindow.__init__(self)
-		Ui_MainWindow.__init__(self)
-		self.setupUi(self)
-		self.initUI()
+    def __init__(self):
+        QtWidgets.QMainWindow.__init__(self)
+        Ui_MainWindow.__init__(self)
+        self.setupUi(self)
+        self.initUI()
 
-	def initUI(self):
-		self.w = QWidget()
+    def initUI(self):
+        self.w = QWidget()
 
-		# a figure instance to plot on
-		self.figure = Figure()
+        # a figure instance to plot on
+        self.figure = Figure()
 
-		# this is the Canvas Widget that displays the `figure`
-		# it takes the `figure` instance as a parameter to __init__
-		self.canvas = FigureCanvas(self.figure)
+        # this is the Canvas Widget that displays the `figure`
+        # it takes the `figure` instance as a parameter to __init__
+        self.canvas = FigureCanvas(self.figure)
 
-		# this is the Navigation widget
-		# it takes the Canvas widget and a parent
-		self.toolbar = NavigationToolbar(self.canvas, self)
+        # this is the Navigation widget
+        # it takes the Canvas widget and a parent
+        self.toolbar = NavigationToolbar(self.canvas, self)
 
-		# set the layout for the main window
-		self.dispLayout.addWidget(self.toolbar)
-		self.dispLayout.addWidget(self.canvas)
+        # set the layout for the main window
+        self.dispLayout.addWidget(self.toolbar)
+        self.dispLayout.addWidget(self.canvas)
 
-		#buttons
-		self.nextFrame.clicked.connect(self.dispNextImg)
-		self.prevFrame.clicked.connect(self.dispPrevImg)
-		self.selectFileBut.clicked.connect(self.getFile)
-		self.playVidBut.clicked.connect(self.play)
-		self.makeTiffBut.clicked.connect(self.makeTiff2)
-		self.displayC.clicked.connect(self.dispCDef)
-		self.displayC.clicked.connect(self.displayTempValues)
-		self.displayF.clicked.connect(self.dispFDef)
-		self.displayF.clicked.connect(self.displayTempValues)
-		self.sl.valueChanged.connect(self.slValueChange)
-		self.saveCvImageBut.clicked.connect(self.saveCvImage)
-		#cid = self.canvas.mpl_connect('button_press_event', self.on_press)
-		self.saveAsVideoSS.clicked.connect(self.saveVideoSS)
-		self.pauseVidBut.clicked.connect(self.pauseVideo)
-		#self.startEdit.returnPressed(frame = str(self.startEdit.text()))
-		#self.startEdit.returnPressed(frame = str(self.startEdit.text()))
+        # buttons
+        self.nextFrame.clicked.connect(self.dispNextImg)
+        self.prevFrame.clicked.connect(self.dispPrevImg)
+        self.selectFileBut.clicked.connect(self.getFile)
+        self.playVidBut.clicked.connect(self.play)
+        self.makeTiffBut.clicked.connect(self.makeTiff2)
+        self.displayC.clicked.connect(self.dispCDef)
+        self.displayC.clicked.connect(self.displayTempValues)
+        self.displayF.clicked.connect(self.dispFDef)
+        self.displayF.clicked.connect(self.displayTempValues)
+        self.sl.valueChanged.connect(self.slValueChange)
+        self.saveCvImageBut.clicked.connect(self.saveCvImage)
+        #cid = self.canvas.mpl_connect('button_press_event', self.on_press)
+        self.saveAsVideoSS.clicked.connect(self.saveVideoSS)
+        self.pauseVidBut.clicked.connect(self.pauseVideo)
+        #self.startEdit.returnPressed(frame = str(self.startEdit.text()))
+        #self.startEdit.returnPressed(frame = str(self.startEdit.text()))
 
-		#self.history.verticalScrollBar().setValue(self.history.verticalScrollBar().maximum())
+        # self.history.verticalScrollBar().setValue(self.history.verticalScrollBar().maximum())
 
-		self.timer = QTimer(self)
-		self.timer.setInterval(timerHz)
-		self.timer.timeout.connect(self.playVid5)
-		self.timer.start()
+        self.timer = QTimer(self)
+        self.timer.setInterval(timerHz)
+        self.timer.timeout.connect(self.playVid5)
+        self.timer.start()
 
-	def dispCDef(self):
-		global toggleUnitState
-		toggleUnitState = 'C'
-		self.history.insertPlainText('Display ' + str(toggleUnitState) + '\n')
-		self.history.moveCursor(QTextCursor.End)
+    def dispCDef(self):
+        global toggleUnitState
+        toggleUnitState = 'C'
+        self.history.insertPlainText('Display ' + str(toggleUnitState) + '\n')
+        self.history.moveCursor(QTextCursor.End)
 
-	def dispFDef(self):
-		global toggleUnitState
-		toggleUnitState = 'F'
-		self.history.insertPlainText('Display ' + str(toggleUnitState) + '\n')
-		self.history.moveCursor(QTextCursor.End)
+    def dispFDef(self):
+        global toggleUnitState
+        toggleUnitState = 'F'
+        self.history.insertPlainText('Display ' + str(toggleUnitState) + '\n')
+        self.history.moveCursor(QTextCursor.End)
 
-	def startTimer(self):
-		global hz
-		self.timer.stop()
-		print(hz)
-		self.timer.setInterval(timerHz)
-		self.timer.timeout.connect(self.playVid5)
-		self.timer.start()
-		print('Re-Started Timer')
+    def startTimer(self):
+        global hz
+        self.timer.stop()
+        print(hz)
+        self.timer.setInterval(timerHz)
+        self.timer.timeout.connect(self.playVid5)
+        self.timer.start()
+        print('Re-Started Timer')
 
-	def stopTimer(self):
-		self.timer.stop()
+    def stopTimer(self):
+        self.timer.stop()
 
-	def speed(self):
-		global framerate
-		hzIndex = self.comboBoxHz.currentIndex()
-		if hzIndex == 0:
-			framerate = 0.5
-			print('Half Framerate')
-		elif hzIndex == 1:
-			framerate = 1
-			print('Normal Framerate')
-		elif hzIndex == 2:
-			framerate = 2
-			print('Double Framerate')
-		else:
-			hz = 111
-		self.startTimer()
+    def speed(self):
+        global framerate
+        hzIndex = self.comboBoxHz.currentIndex()
+        if hzIndex == 0:
+            framerate = 0.5
+            print('Half Framerate')
+        elif hzIndex == 1:
+            framerate = 1
+            print('Normal Framerate')
+        elif hzIndex == 2:
+            framerate = 2
+            print('Double Framerate')
+        else:
+            hz = 111
+        self.startTimer()
 
-	def slValueChange(self):
-		global frame
-		#global fileSelected
-		#if fileSelected != "":
-		#print('SlValueChange Def Called')
-		frame = self.sl.value()
-		self.dispImg()
-		self.canvas.draw()
+    def slValueChange(self):
+        global frame
+        #global fileSelected
+        # if fileSelected != "":
+        #print('SlValueChange Def Called')
+        frame = self.sl.value()
+        self.dispImg()
+        self.canvas.draw()
 
-	def setSlider(self):
-		global lastFrame
-		#print('Set Slider Function Called')
-		#print('Enable Slider')
-		self.sl.setEnabled(True)
-		#print('Set Minimum')
-		self.sl.setMinimum(1)
-		#print(lastFrame)
-		#print('Set Maximum')
-		self.sl.setMaximum(lastFrame)
-		self.sl.setValue(1)
-		self.sl.setTickPosition(QSlider.TicksBelow)
-		self.sl.setTickInterval(9)
-		self.slStartF.setText('First Frame: 1')
-		self.slMidF.setText('Mid Frame: ' + str(lastFrame/2))
-		self.slEndF.setText('Last Frame: ' + str(lastFrame))
-		self.slStartT.setText('0 Seconds')
-		self.slMidT.setText(str(lastFrame/(2*9)) + ' Seconds')
-		self.slEndT.setText(str(lastFrame/9) + ' Seconds')
+    def setSlider(self):
+        global lastFrame
+        #print('Set Slider Function Called')
+        #print('Enable Slider')
+        self.sl.setEnabled(True)
+        #print('Set Minimum')
+        self.sl.setMinimum(1)
+        # print(lastFrame)
+        #print('Set Maximum')
+        self.sl.setMaximum(lastFrame)
+        self.sl.setValue(1)
+        self.sl.setTickPosition(QSlider.TicksBelow)
+        self.sl.setTickInterval(9)
+        self.slStartF.setText('First Frame: 1')
+        self.slMidF.setText('Mid Frame: ' + str(lastFrame/2))
+        self.slEndF.setText('Last Frame: ' + str(lastFrame))
+        self.slStartT.setText('0 Seconds')
+        self.slMidT.setText(str(lastFrame/(2*9)) + ' Seconds')
+        self.slEndT.setText(str(lastFrame/9) + ' Seconds')
 
-	def saveVideoSS(self):
-		global frame
-		global editLastFrame
-		global videoState
-		videoState = 'pause'
-		if fileSelected != "":
-			fileNameVid = ""
-			dlgVid = QFileDialog()
-			#dlg.setNameFilter('PNG files (*.png)')
-			dlgVid.setDefaultSuffix('.avi')
-			fileNameVid = dlgVid.getSaveFileName(self.w, 'Navigate to Directory and Choose a File Name to Save To', 'untitled.avi', 'AVI Video (*.avi)')
-			#if self.startEdit.isModified():
-			fileNameVid = str(fileNameVid)
-			#if fileNameVid.endswith('.avi') == False:
-			#	fileNameVid = fileNameVid + '.avi'
-			frame = int(self.startEdit.text())
-			#if self.stopEdit.isModified():
-			editLastFrame = int(self.stopEdit.text())
-			fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-			if fileNameVid != "":
-				try:
-					out = cv2.VideoWriter(fileNameVid,fourcc, 9.0, (640,480), True)
-					print('past out')
-					for i in range(frame, editLastFrame):
-						print('frame' + str(i))
-						frameForVid = self.grabDataFrame()
-						out.write(frameForVid)
-						if frame <= editLastFrame:
-							frame += framerate
-						else:
-							print('You are at Last Frame')
-					out.release()
-					print('out release')
-					print('Saved Video As ' + str(fileNameVid))
-					self.history.insertPlainText('SUCCESS: Saved Video\n')
-					self.history.moveCursor(QTextCursor.End)
-				except:
-					self.history.insertPlainText('No AVI Video Generated\n Did Not Specify Proper FileName\n')
-					self.history.moveCursor(QTextCursor.End)
-					print('Did Not Specify Proper FileName')
-					print('No AVI Video Generated')
-			else:
-				self.history.insertPlainText('No AVI Video Generated\n Did Not Specify Proper FileName\n')
-				self.history.moveCursor(QTextCursor.End)
-				print('Did Not Specify Proper FileName')
-				print('No AVI Video Generated')
+    def saveVideoSS(self):
+        global frame
+        global editLastFrame
+        global videoState
+        videoState = 'pause'
+        if fileSelected != "":
+            fileNameVid = ""
+            dlgVid = QFileDialog()
+            #dlg.setNameFilter('PNG files (*.png)')
+            dlgVid.setDefaultSuffix('.avi')
+            fileNameVid = dlgVid.getSaveFileName(
+                self.w, 'Navigate to Directory and Choose a File Name to Save To', 'untitled.avi', 'AVI Video (*.avi)')
+            # if self.startEdit.isModified():
+            fileNameVid = str(fileNameVid)
+            # if fileNameVid.endswith('.avi') == False:
+            #	fileNameVid = fileNameVid + '.avi'
+            frame = int(self.startEdit.text())
+            # if self.stopEdit.isModified():
+            editLastFrame = int(self.stopEdit.text())
+            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+            if fileNameVid != "":
+                try:
+                    out = cv2.VideoWriter(
+                        fileNameVid, fourcc, 9.0, (640, 480), True)
+                    print('past out')
+                    for i in range(frame, editLastFrame):
+                        print('frame' + str(i))
+                        frameForVid = self.grabDataFrame()
+                        out.write(frameForVid)
+                        if frame <= editLastFrame:
+                            frame += framerate
+                        else:
+                            print('You are at Last Frame')
+                    out.release()
+                    print('out release')
+                    print('Saved Video As ' + str(fileNameVid))
+                    self.history.insertPlainText('SUCCESS: Saved Video\n')
+                    self.history.moveCursor(QTextCursor.End)
+                except:
+                    self.history.insertPlainText(
+                        'No AVI Video Generated\n Did Not Specify Proper FileName\n')
+                    self.history.moveCursor(QTextCursor.End)
+                    print('Did Not Specify Proper FileName')
+                    print('No AVI Video Generated')
+            else:
+                self.history.insertPlainText(
+                    'No AVI Video Generated\n Did Not Specify Proper FileName\n')
+                self.history.moveCursor(QTextCursor.End)
+                print('Did Not Specify Proper FileName')
+                print('No AVI Video Generated')
 
-	def saveCvImage(self):
-		global fileSelected
-		global videoState
-		videoState = 'pause'
-		if fileSelected != "":
-			dlg = QFileDialog()
-			#dlg.setNameFilter('PNG files (*.png)')
-			dlg.setDefaultSuffix('.png')
-			fileNameImage = dlg.getSaveFileName(self.w, 'Navigate to Directory and Choose a File Name to Save To', 'untitled.png', 'PNG Image (*.png)')
-			if fileNameImage != "":
-				try:
-					print(fileNameImage)
-					cv2.imwrite(str(fileNameImage),self.grabDataFrame())
-					print('Saved frame ' + str(frame) + ' as .png')
-					self.history.insertPlainText('SUCCESS: Saved Frame: ' + str(frame) + ' as PNG\n')
-					self.history.moveCursor(QTextCursor.End)
-				except:
-					self.history.insertPlainText('No PNG Image Generated\n Did Not Specify Proper FileName\n')
-					self.history.moveCursor(QTextCursor.End)
-					print('Did Not Specify Proper FileName')
-					print('No PNG Image Generated')
-			else:
-				self.history.insertPlainText('No PNG Image Generated\n Did Not Specify Proper FileName\n')
-				self.history.moveCursor(QTextCursor.End)
-				print('Did Not Specify Proper FileName')
-				print('No PNG Image Generated')
+    def saveCvImage(self):
+        global fileSelected
+        global videoState
+        videoState = 'pause'
+        if fileSelected != "":
+            dlg = QFileDialog()
+            #dlg.setNameFilter('PNG files (*.png)')
+            dlg.setDefaultSuffix('.png')
+            fileNameImage = dlg.getSaveFileName(
+                self.w, 'Navigate to Directory and Choose a File Name to Save To', 'untitled.png', 'PNG Image (*.png)')
+            if fileNameImage != "":
+                try:
+                    print(fileNameImage)
+                    cv2.imwrite(str(fileNameImage), self.grabDataFrame())
+                    print('Saved frame ' + str(frame) + ' as .png')
+                    self.history.insertPlainText(
+                        'SUCCESS: Saved Frame: ' + str(frame) + ' as PNG\n')
+                    self.history.moveCursor(QTextCursor.End)
+                except:
+                    self.history.insertPlainText(
+                        'No PNG Image Generated\n Did Not Specify Proper FileName\n')
+                    self.history.moveCursor(QTextCursor.End)
+                    print('Did Not Specify Proper FileName')
+                    print('No PNG Image Generated')
+            else:
+                self.history.insertPlainText(
+                    'No PNG Image Generated\n Did Not Specify Proper FileName\n')
+                self.history.moveCursor(QTextCursor.End)
+                print('Did Not Specify Proper FileName')
+                print('No PNG Image Generated')
 
+    def makeTiff2(self):
+        global lastFrame
+        global fileSelected
+        global videoState
+        videoState = 'pause'
+        if fileSelected != "":
+            dlgTiff = QFileDialog()
+            #dlg.setNameFilter('PNG files (*.png)')
+            dlgTiff.setDefaultSuffix('.tiff')
+            fileNameTiff = dlgTiff.getSaveFileName(
+                self.w, 'Navigate to Directory and Choose a File Name to Save To', 'untitled.tiff', 'TIFF File (*.tiff)')
+            print(fileNameTiff)
+            if fileNameTiff != "":
+                self.history.insertPlainText('File Name Selected\n')
+                self.history.moveCursor(QTextCursor.End)
+                print('Collecting Data Frames...')
+                for i in range(1, lastFrame):
+                    #print('Frame to Tiff: ' + str(i))
+                    data = self.f_read[('image'+str(i))][:]
+                    if i == 1:
+                        dataCollection = data
+                    else:
+                        dataCollection = np.dstack((dataCollection, data))
+                    i += 1
+                    if i == lastFrame/2:
+                        print('Half Way Through File...')
+                print('Completed Collecting All Data Frames')
+                try:
+                    imsave((str(fileNameTiff)), dataCollection)
+                    print('Saved Tiff As ' + str(fileNameTiff))
+                    self.history.insertPlainText(' Saved Tiff\n')
+                    self.history.moveCursor(QTextCursor.End)
+                except:
+                    self.history.insertPlainText(
+                        'No Tiff File Generated\n Did Not Specify Proper FileName\n')
+                    self.history.moveCursor(QTextCursor.End)
+                    print('Did Not Specify Proper FileName')
+                    print('No Tiff File Generated')
+            else:
+                self.history.insertPlainText(
+                    'No Tiff File Generated\n Did Not Specify Proper FileName\n')
+                self.history.moveCursor(QTextCursor.End)
+                print('Did Not Specify Proper FileName')
+                print('No Tiff File Generated')
 
-	def makeTiff2(self):
-		global lastFrame
-		global fileSelected
-		global videoState
-		videoState = 'pause'
-		if fileSelected != "":
-			dlgTiff = QFileDialog()
-			#dlg.setNameFilter('PNG files (*.png)')
-			dlgTiff.setDefaultSuffix('.tiff')
-			fileNameTiff = dlgTiff.getSaveFileName(self.w, 'Navigate to Directory and Choose a File Name to Save To', 'untitled.tiff', 'TIFF File (*.tiff)')
-			print(fileNameTiff)
-			if fileNameTiff != "":
-				self.history.insertPlainText('File Name Selected\n')
-				self.history.moveCursor(QTextCursor.End)
-				print('Collecting Data Frames...')
-				for i in range(1,lastFrame):
-					#print('Frame to Tiff: ' + str(i))
-					data = self.f_read[('image'+str(i))][:]
-					if i == 1:
-						dataCollection = data
-					else:
-						dataCollection = np.dstack((dataCollection,data))
-					i += 1
-					if i == lastFrame/2:
-						print('Half Way Through File...')
-				print('Completed Collecting All Data Frames')
-				try:
-					imsave((str(fileNameTiff)), dataCollection)
-					print('Saved Tiff As ' + str(fileNameTiff))
-					self.history.insertPlainText(' Saved Tiff\n')
-					self.history.moveCursor(QTextCursor.End)
-				except:
-					self.history.insertPlainText('No Tiff File Generated\n Did Not Specify Proper FileName\n')
-					self.history.moveCursor(QTextCursor.End)
-					print('Did Not Specify Proper FileName')
-					print('No Tiff File Generated')
-			else:
-				self.history.insertPlainText('No Tiff File Generated\n Did Not Specify Proper FileName\n')
-				self.history.moveCursor(QTextCursor.End)
-				print('Did Not Specify Proper FileName')
-				print('No Tiff File Generated')
+    def grabTempValue(self):
+        global frame
+        global lastFrame
+        global fileSelected
+        global xMouse
+        global yMouse
+        data = self.f_read[('image'+str(frame))][:]
+        data = cv2.resize(data[:, :], (640, 480))
+        return data[yMouse, xMouse]
 
-	def grabTempValue(self):
-		global frame
-		global lastFrame
-		global fileSelected
-		global xMouse
-		global yMouse
-		data = self.f_read[('image'+str(frame))][:]
-		data = cv2.resize(data[:,:], (640, 480))
-		return data[yMouse, xMouse]
+    def on_press(self, event):
+        global xMouse
+        global yMouse
+        global cursorVal
+        #print('you pressed', event.button, event.xdata, event.ydata)
+        xMouse = event.xdata
+        yMouse = event.ydata
+        cursorVal = self.grabTempValue()
+        self.cursorTempLabel.setText(
+            'Cursor Temp: ' + readTemp(toggleUnitState, 'none'))
 
-	def on_press(self, event):
-		global xMouse
-		global yMouse
-		global cursorVal
-		#print('you pressed', event.button, event.xdata, event.ydata)
-		xMouse = event.xdata
-		yMouse = event.ydata
-		cursorVal = self.grabTempValue()
-		self.cursorTempLabel.setText('Cursor Temp: ' + readTemp(toggleUnitState, 'none'))
+    def hover(self, event):
+        global xMouse
+        global yMouse
+        global cursorVal
+        #print('you pressed', event.button, event.xdata, event.ydata)
+        if event.xdata != None:
+            xMouse = int(round(event.xdata))
+            yMouse = int(round(event.ydata))
+            cursorVal = int(round(self.grabTempValue()))
+            # if xMouse > 1 and xMouse < 640 and yMouse > 0 and yMouse < 480:
+            self.cursorTempLabel.setText(
+                'Cursor Temp: ' + readTemp(toggleUnitState, 'none'))
+            # else:
+            #self.cursorTempLabel.setText('Cursor Temp: MOVE CURSOR OVER IMAGE')
+        else:
+            #print('MOVE CURSOR OVER IMAGE')
+            self.cursorTempLabel.setText('Cursor Temp: MOVE CURSOR OVER IMAGE')
 
-	def hover(self, event):
-		global xMouse
-		global yMouse
-		global cursorVal
-		#print('you pressed', event.button, event.xdata, event.ydata)
-		if event.xdata != None:
-			xMouse = int(round(event.xdata))
-			yMouse = int(round(event.ydata))
-			cursorVal = int(round(self.grabTempValue()))
-			#if xMouse > 1 and xMouse < 640 and yMouse > 0 and yMouse < 480:
-			self.cursorTempLabel.setText('Cursor Temp: ' + readTemp(toggleUnitState, 'none'))
-			#else:
-				#self.cursorTempLabel.setText('Cursor Temp: MOVE CURSOR OVER IMAGE')
-		else:
-			#print('MOVE CURSOR OVER IMAGE')
-			self.cursorTempLabel.setText('Cursor Temp: MOVE CURSOR OVER IMAGE')
+    def displayTempValues(self):
+        global fileSelected
+        global toggleUnitState
+        if fileSelected != "":
+            self.maxTempLabel.setText(
+                'Current Max Temp: ' + readTemp(toggleUnitState, 'max'))
+            self.maxTempLocLabel.setText('Max Temp Loc: ' + str(maxLoc))
+            self.minTempLabel.setText(
+                'Current Min Temp: ' + readTemp(toggleUnitState, 'min'))
+            self.minTempLocLabel.setText('Min Temp Loc: ' + str(minLoc))
 
-	def displayTempValues(self):
-		global fileSelected
-		global toggleUnitState
-		if fileSelected != "":
-			self.maxTempLabel.setText('Current Max Temp: ' + readTemp(toggleUnitState, 'max'))
-			self.maxTempLocLabel.setText('Max Temp Loc: ' + str(maxLoc))
-			self.minTempLabel.setText('Current Min Temp: ' + readTemp(toggleUnitState, 'min'))
-			self.minTempLocLabel.setText('Min Temp Loc: ' + str(minLoc))
+    def grabDataFrame(self):
+        global frame
+        global lastFrame
+        global fileSelected
+        #print('Display Image at Frame: ' + str(frame))
+        data = self.f_read[('image'+str(frame))][:]
+        data = cv2.resize(data[:, :], (640, 480))
+        img = cv2.LUT(raw_to_8bit(data), generate_colour_map())
+        img2 = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        rgbImage = cv2.cvtColor(img2, cv2.COLOR_BGR2RGB)
+        return(rgbImage)
 
-	def grabDataFrame(self):
-		global frame
-		global lastFrame
-		global fileSelected
-		#print('Display Image at Frame: ' + str(frame))
-		data = self.f_read[('image'+str(frame))][:]
-		data = cv2.resize(data[:,:], (640, 480))
-		img = cv2.LUT(raw_to_8bit(data), generate_colour_map())
-		img2 = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-		rgbImage = cv2.cvtColor(img2, cv2.COLOR_BGR2RGB)
-		return(rgbImage)
+    def play(self):
+        global frame
+        global editLastFrame
+        global fileSelected
+        global videoState
+        self.history.insertPlainText('Play Video\n')
+        self.history.moveCursor(QTextCursor.End)
+        # print(self.startEdit.text())
+        if self.startEdit.isModified():
+            frame = int(self.startEdit.text())
+            print('Starting at Frame: ' + self.startEdit.text())
+        if self.stopEdit.isModified():
+            editLastFrame = int(self.stopEdit.text())
+        if fileSelected != "":
+            self.timer.start()
+            videoState = 'play'
 
-	def play(self):
-		global frame
-		global editLastFrame
-		global fileSelected
-		global videoState
-		self.history.insertPlainText('Play Video\n')
-		self.history.moveCursor(QTextCursor.End)
-		#print(self.startEdit.text())
-		if self.startEdit.isModified():
-			frame = int(self.startEdit.text())
-			print('Starting at Frame: ' + self.startEdit.text())
-		if self.stopEdit.isModified():
-			editLastFrame = int(self.stopEdit.text())
-		if fileSelected != "":
-			self.timer.start()
-			videoState = 'play'
+    def pauseVideo(self):
+        global videoState
+        self.history.insertPlainText('Paused Video\n')
+        self.history.moveCursor(QTextCursor.End)
+        videoState = 'pause'
 
-	def pauseVideo(self):
-		global videoState
-		self.history.insertPlainText('Paused Video\n')
-		self.history.moveCursor(QTextCursor.End)
-		videoState = 'pause'
+    def playVid5(self):
+        global videoState
+        global frame
+        global lastFrame
+        global editLastFrame
+        if videoState == 'play':
+            if editLastFrame <= lastFrame:
+                if frame <= editLastFrame:
+                    self.sl.setValue(frame)
+                    if frame != lastFrame:
+                        frame += 1
+                    #print('playing video')
+                else:
+                    print('You are at Stop Frame')
+                    videoState = 'pause'
+            else:
+                print('You are at Last Frame')
+                videoState = 'pause'
 
-	def playVid5(self):
-		global videoState
-		global frame
-		global lastFrame
-		global editLastFrame
-		if videoState == 'play':
-			if editLastFrame <= lastFrame:
-				if frame <= editLastFrame:
-					self.sl.setValue(frame)
-					if frame != lastFrame:
-						frame += 1
-					#print('playing video')
-				else:
-					print('You are at Stop Frame')
-					videoState = 'pause'
-			else:
-				print('You are at Last Frame')
-				videoState = 'pause'
+    def dispNextImg(self):
+        global frame
+        global lastFrame
+        global framerate
+        global fileSelected
+        global videoState
+        videoState = 'pause'
+        self.history.insertPlainText('Next Frame: ' + str(frame) + '\n')
+        self.history.moveCursor(QTextCursor.End)
+        if fileSelected != "":
+            if lastFrame > frame:
+                frame += framerate
+            else:
+                print('You are at Last Frame')
+            # self.dispImg()
+            # self.canvas.draw()
+            self.sl.setValue(frame)
 
-	def dispNextImg(self):
-		global frame
-		global lastFrame
-		global framerate
-		global fileSelected
-		global videoState
-		videoState = 'pause'
-		self.history.insertPlainText('Next Frame: ' + str(frame) + '\n')
-		self.history.moveCursor(QTextCursor.End)
-		if fileSelected != "":
-			if lastFrame > frame:
-				frame += framerate
-			else:
-				print('You are at Last Frame')
-			#self.dispImg()
-			#self.canvas.draw()
-			self.sl.setValue(frame)
+    def dispPrevImg(self):
+        global frame
+        global fileSelected
+        global videoState
+        self.history.insertPlainText('Previous Frame: ' + str(frame) + '\n')
+        self.history.moveCursor(QTextCursor.End)
+        videoState = 'pause'
+        if fileSelected != "":
+            if frame > 1:
+                frame -= 1
+            else:
+                print('You are at First Frame')
+            # self.dispImg()
+            # self.canvas.draw()
+            self.sl.setValue(frame)
 
-	def dispPrevImg(self):
-		global frame
-		global fileSelected
-		global videoState
-		self.history.insertPlainText('Previous Frame: ' + str(frame) + '\n')
-		self.history.moveCursor(QTextCursor.End)
-		videoState = 'pause'
-		if fileSelected != "":
-			if frame > 1:
-				frame -= 1
-			else:
-				print('You are at First Frame')
-			#self.dispImg()
-			#self.canvas.draw()
-			self.sl.setValue(frame)
+    def dispImg(self):
+        global frame
+        global lastFrame
+        global fileSelected
+        global maxVal
+        global minVal
+        global maxLoc
+        global minLoc
+        # if frame > 1:
+        # self.cb.remove()
+        #print('Display Image at Frame: ' + str(frame))
+        self.currentFrameDisp.setText('Current Frame: ' + str(frame))
+        data = self.f_read[('image'+str(frame))][:]
+        data = cv2.resize(data[:, :], (640, 480))
+        minVal, maxVal, minLoc, maxLoc = cv2.minMaxLoc(data)
+        img = cv2.LUT(raw_to_8bit(data), generate_colour_map())
+        rgbImage = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        self.ax = self.figure.add_subplot(111)
+        self.ax.clear()
+        #cmap = mpl.cm.cool
+        #norm = mpl.colors.Normalize(vmin=5, vmax=10)
+        #print('Ran dispImg')
+        # print(frame)
+        if frame == 1:
+            self.figure.tight_layout()
+        #colorVals = cm.get_clim(rgbImage)
+        # print(colorVals)
+        #cax = self.figure.add_axes([0.2, 0.08, 0.6, 0.04])
+        #self.figure.colorbar(rgbImage, cax, orientation='horizontal')
+        self.cax = self.ax.imshow(rgbImage)
+        #self.cb = self.figure.colorbar(self.cax)
+        lastFrame = len(self.f_read)
+        self.sl.setValue(frame)
+        self.displayTempValues()
+        self.currentTimeLabel.setText(
+            'Current Time: ' + str(round(((frame-1)/9.00), 2)))
+        cid = self.canvas.mpl_connect('motion_notify_event', self.hover)
 
-	def dispImg(self):
-		global frame
-		global lastFrame
-		global fileSelected
-		global maxVal
-		global minVal
-		global maxLoc
-		global minLoc
-		#if frame > 1:
-			#self.cb.remove()
-		#print('Display Image at Frame: ' + str(frame))
-		self.currentFrameDisp.setText('Current Frame: ' + str(frame))
-		data = self.f_read[('image'+str(frame))][:]
-		data = cv2.resize(data[:,:], (640, 480))
-		minVal, maxVal, minLoc, maxLoc = cv2.minMaxLoc(data)
-		img = cv2.LUT(raw_to_8bit(data), generate_colour_map())
-		rgbImage = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-		self.ax = self.figure.add_subplot(111)
-		self.ax.clear()
-		#cmap = mpl.cm.cool
-		#norm = mpl.colors.Normalize(vmin=5, vmax=10)
-		#print('Ran dispImg')
-		#print(frame)
-		if frame == 1:
-			self.figure.tight_layout()
-		#colorVals = cm.get_clim(rgbImage)
-		#print(colorVals)
-		#cax = self.figure.add_axes([0.2, 0.08, 0.6, 0.04])
-		#self.figure.colorbar(rgbImage, cax, orientation='horizontal')
-		self.cax = self.ax.imshow(rgbImage)
-		#self.cb = self.figure.colorbar(self.cax)
-		lastFrame = len(self.f_read)
-		self.sl.setValue(frame)
-		self.displayTempValues()
-		self.currentTimeLabel.setText('Current Time: ' + str(round(((frame-1)/9.00),2)))
-		cid = self.canvas.mpl_connect('motion_notify_event', self.hover)
+    def enableThings(self):
+        self.playVidBut.setEnabled(True)
+        self.pauseVidBut.setEnabled(True)
+        self.nextFrame.setEnabled(True)
+        self.prevFrame.setEnabled(True)
+        self.startEdit.setEnabled(True)
+        self.stopEdit.setEnabled(True)
+        self.saveAsVideoSS.setEnabled(True)
+        self.saveCvImageBut.setEnabled(True)
+        self.makeTiffBut.setEnabled(True)
+        self.displayC.setEnabled(True)
+        self.displayF.setEnabled(True)
 
-	def enableThings(self):
-		self.playVidBut.setEnabled(True)
-		self.pauseVidBut.setEnabled(True)
-		self.nextFrame.setEnabled(True)
-		self.prevFrame.setEnabled(True)
-		self.startEdit.setEnabled(True)
-		self.stopEdit.setEnabled(True)
-		self.saveAsVideoSS.setEnabled(True)
-		self.saveCvImageBut.setEnabled(True)
-		self.makeTiffBut.setEnabled(True)
-		self.displayC.setEnabled(True)
-		self.displayF.setEnabled(True)
+    def getFile(self):
+        global frame
+        global fileSelected
+        global editLastFrame
+        global lastFrame
+        # self.pauseVideo()
+        fileSelected = ""
+        fileSelected = QFileDialog.getOpenFileName(self.w, 'Open File', '/')[0]
+        print(fileSelected)
+        #fileTypes = ['hdf5','HDF5','HD5F','hd5f']
+        if fileSelected != "":
+            # if any(x in fileSelected for x in fileTypes):
+            try:
+                self.dispSelectedFile.setText(fileSelected)
+                self.f_read = h5py.File(str(fileSelected), 'r')
+                self.dispImg()
+                self.enableThings()
+                self.setSlider()
+                editLastFrame = lastFrame
+                self.startEdit.setText(str(frame))
+                self.stopEdit.setText(str(lastFrame))
+                self.history.insertPlainText(
+                    'Selected File and Displayed First Frame\n')
+                self.history.moveCursor(QTextCursor.End)
+                print('Selected File and Displayed First Frame')
+                self.canvas.draw()
+            # else:
+            except:
+                self.history.insertPlainText(
+                    'ERROR: Incorrect File Type Selected\n Please select .HDF5 File\n')
+                self.history.moveCursor(QTextCursor.End)
+                print('Incorrect File Type Selected. Please select .HDF5 File.')
+        else:
+            self.history.insertPlainText(
+                'ERROR: Incorrect File Type Selected\n Please select .HDF5 File\n')
+            self.history.moveCursor(QTextCursor.End)
+            print('Incorrect File Type Selected. Please select .HDF5 File.')
 
-	def getFile(self):
-		global frame
-		global fileSelected
-		global editLastFrame
-		global lastFrame
-		#self.pauseVideo()
-		fileSelected = ""
-		fileSelected = QFileDialog.getOpenFileName(self.w, 'Open File', '/')
-		print(fileSelected)
-		#fileTypes = ['hdf5','HDF5','HD5F','hd5f']
-		if fileSelected != "":
-			#if any(x in fileSelected for x in fileTypes):
-			try:
-				self.dispSelectedFile.setText(fileSelected)
-				self.f_read = h5py.File(str(fileSelected), 'r')
-				self.dispImg()
-				self.enableThings()
-				self.setSlider()
-				editLastFrame = lastFrame
-				self.startEdit.setText(str(frame))
-				self.stopEdit.setText(str(lastFrame))
-				self.history.insertPlainText('Selected File and Displayed First Frame\n')
-				self.history.moveCursor(QTextCursor.End)
-				print('Selected File and Displayed First Frame')
-				self.canvas.draw()
-			#else:
-			except:
-				self.history.insertPlainText('ERROR: Incorrect File Type Selected\n Please select .HDF5 File\n')
-				self.history.moveCursor(QTextCursor.End)
-				print('Incorrect File Type Selected. Please select .HDF5 File.')
-		else:
-			self.history.insertPlainText('ERROR: Incorrect File Type Selected\n Please select .HDF5 File\n')
-			self.history.moveCursor(QTextCursor.End)
-			print('Incorrect File Type Selected. Please select .HDF5 File.')
 
 def main():
     app = QtWidgets.QApplication(sys.argv)
     main = Window()
     main.show()
     sys.exit(app.exec_())
+
 
 if __name__ == '__main__':
     main()
